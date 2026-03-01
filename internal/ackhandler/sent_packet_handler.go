@@ -1141,3 +1141,7 @@ func (h *sentPacketHandler) MigratedPath(now monotime.Time, initialMaxDatagramSi
 	)
 	h.setLossDetectionTimer(now)
 }
+
+func (h *sentPacketHandler) SetCongestionControl(algo congestion.SendAlgorithmWithDebugInfos) {
+	h.congestion = algo
+}

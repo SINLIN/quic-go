@@ -176,6 +176,11 @@ type Config struct {
 	// See https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-07.
 	EnableStreamResetPartialDelivery bool
 
+	// 新增：拥塞控制算法选择。可选值: "cubic" (默认), "hysteria"
+	CongestionControl string
+	// 新增：最大带宽上限，单位 Mbps (仅在 CongestionControl 为 "hysteria" 时生效)
+	MaxBandwidthMbps int
+
 	Tracer func(ctx context.Context, isClient bool, connID ConnectionID) qlogwriter.Trace
 }
 

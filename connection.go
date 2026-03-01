@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/internal/ackhandler"
+	"github.com/quic-go/quic-go/internal/congestion"
 	"github.com/quic-go/quic-go/internal/flowcontrol"
 	"github.com/quic-go/quic-go/internal/handshake"
 	"github.com/quic-go/quic-go/internal/monotime"
@@ -310,6 +311,9 @@ var newConnection = func(
 	)
 	s.preSetup()
 	s.rttStats.SetInitialRTT(rtt)
+
+	// --- 修复开始：根据配置选择拥塞算法 ---
+	// 1. 标准创建 Handler (此时内部会自动创建默认的 Cubic)
 	s.sentPacketHandler = ackhandler.NewSentPacketHandler(
 		0,
 		protocol.ByteCount(s.config.InitialPacketSize),
@@ -322,6 +326,28 @@ var newConnection = func(
 		s.qlogger,
 		s.logger,
 	)
+	//println("CongestionControl:", s.config.CongestionControl)
+	if s.config.CongestionControl == "hysteria" {
+		//println("DEBUG: Using Hysteria congestion control!")
+		targetMbps := s.config.MaxBandwidthMbps
+		//println("targetMbps: ", targetMbps)
+		if targetMbps <= 0 {
+			targetMbps = 3
+		}
+
+		hysAlgo := congestion.NewHysteriaSender(
+			s.rttStats,
+			protocol.ByteCount(s.config.InitialPacketSize),
+			targetMbps,
+		)
+
+		if setter, ok := s.sentPacketHandler.(interface {
+			SetCongestionControl(congestion.SendAlgorithmWithDebugInfos)
+		}); ok {
+			setter.SetCongestionControl(hysAlgo)
+			//println("DEBUG: Successfully injected Hysteria!")
+		}
+	}
 	s.currentMTUEstimate.Store(uint32(estimateMaxPayloadSize(protocol.ByteCount(s.config.InitialPacketSize))))
 	statelessResetToken := statelessResetter.GetStatelessResetToken(srcConnID)
 	params := &wire.TransportParameters{
@@ -439,18 +465,53 @@ var newClientConnection = func(
 	)
 	s.ctx, s.ctxCancel = context.WithCancelCause(ctx)
 	s.preSetup()
+	// --- Hysteria 注入开始 ---
 	s.sentPacketHandler = ackhandler.NewSentPacketHandler(
 		initialPacketNumber,
 		protocol.ByteCount(s.config.InitialPacketSize),
 		s.rttStats,
 		&s.connStats,
-		false, // has no effect
+		false,
 		s.conn.capabilities().ECN,
 		s.receivedPacketHandler.IgnorePacketsBelow,
 		s.perspective,
 		s.qlogger,
 		s.logger,
 	)
+
+	// 检查配置是否开启了 Hysteria 模式
+	//println("CongestionControl:", s.config.CongestionControl)
+	if s.config.CongestionControl == "hysteria" {
+		//println("切换到Hysteria")
+
+		// 使用配置中的带宽值
+
+		targetMbps := s.config.MaxBandwidthMbps
+		//println("targetMbps: ", targetMbps)
+		if targetMbps <= 0 {
+			targetMbps = 1 // 保底默认值
+		}
+
+		hysAlgo := congestion.NewHysteriaSender(
+			s.rttStats,
+			protocol.ByteCount(s.config.InitialPacketSize),
+			targetMbps,
+		)
+
+		// 定义探测接口
+		type hSetter interface {
+			SetCongestionControl(congestion.SendAlgorithmWithDebugInfos)
+		}
+
+		if setter, ok := s.sentPacketHandler.(hSetter); ok {
+			setter.SetCongestionControl(hysAlgo)
+			//fmt.Printf("DEBUG: Successfully injected Hysteria with %d Mbps!\n", targetMbps)
+		} else {
+			fmt.Printf("DEBUG: FAILED. Actual type of sentPacketHandler is: %T\n", s.sentPacketHandler)
+		}
+	}
+	// 注入 Hysteria
+
 	s.currentMTUEstimate.Store(uint32(estimateMaxPayloadSize(protocol.ByteCount(s.config.InitialPacketSize))))
 	oneRTTStream := newCryptoStream()
 	params := &wire.TransportParameters{

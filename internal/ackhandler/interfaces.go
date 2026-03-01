@@ -25,6 +25,10 @@ type SentPacketHandler interface {
 	TimeUntilSend() monotime.Time
 	SetMaxDatagramSize(count protocol.ByteCount)
 
+	// 新增这一行
+	// 确保这里写的是 SendAlgorithm
+	//SetCongestionControl(algo congestion.SendAlgorithm)
+
 	// only to be called once the handshake is complete
 	QueueProbePacket(protocol.EncryptionLevel) bool /* was a packet queued */
 

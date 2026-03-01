@@ -105,6 +105,19 @@ func populateConfig(config *Config) *Config {
 		initialPacketSize = protocol.InitialPacketSize
 	}
 
+	// --- 处理拥塞控制默认值 ---
+	cc := config.CongestionControl
+	if cc != "" && cc != "cubic" && cc != "hysteria" {
+		fmt.Errorf("不支持的拥塞控制算法: %s (仅支持 cubic 或 hysteria)", cc)
+	}
+	if cc == "" {
+		cc = "cubic"
+	}
+	maxBW := config.MaxBandwidthMbps
+	if cc == "hysteria" && maxBW <= 0 {
+		maxBW = 10 // 默认给 10Mbps 兜底
+	}
+
 	return &Config{
 		GetConfigForClient:               config.GetConfigForClient,
 		Versions:                         versions,
@@ -124,6 +137,8 @@ func populateConfig(config *Config) *Config {
 		DisablePathMTUDiscovery:          config.DisablePathMTUDiscovery,
 		EnableStreamResetPartialDelivery: config.EnableStreamResetPartialDelivery,
 		Allow0RTT:                        config.Allow0RTT,
+		CongestionControl:                cc,
+		MaxBandwidthMbps:                 maxBW,
 		Tracer:                           config.Tracer,
 	}
 }
